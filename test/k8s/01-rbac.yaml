@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ollama-scaler-sa
+  namespace: ollama-test
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ollama-deployment-scaler
+  namespace: ollama-test
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["ollama-worker"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ollama-scaler-binding
+  namespace: ollama-test
+subjects:
+  - kind: ServiceAccount
+    name: ollama-scaler-sa
+    namespace: ollama-test
+roleRef:
+  kind: Role
+  name: ollama-deployment-scaler
+  apiGroup: rbac.authorization.k8s.io

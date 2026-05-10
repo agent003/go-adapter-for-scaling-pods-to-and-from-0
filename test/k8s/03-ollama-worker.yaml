@@ -1,0 +1,145 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models
+  namespace: ollama-test
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-worker
+  namespace: ollama-test
+  labels:
+    app: ollama-worker
+spec:
+  # start at 1 so setup.sh can pre-pull the model; the gateway will scale this
+  # to 0 once IDLE_TIMEOUT elapses, and back to 1 on the next request.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama-worker
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: ollama-worker
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: caddy
+          image: caddy:2.7-alpine
+          ports:
+            - name: https
+              containerPort: 443
+          volumeMounts:
+            - name: caddyfile
+              mountPath: /etc/caddy
+              readOnly: true
+            - name: certs
+              mountPath: /etc/certs
+              readOnly: true
+            - name: caddy-data
+              mountPath: /data
+            - name: caddy-config
+              mountPath: /config
+          livenessProbe:
+            tcpSocket:
+              port: https
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: https
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - name: ollama
+              containerPort: 11434
+          env:
+            # Bind only to loopback — Caddy fronts public traffic.
+            - name: OLLAMA_HOST
+              value: "127.0.0.1:11434"
+            # The caddy sidecar already rewrites the Host header to a
+            # loopback value before forwarding, but set OLLAMA_ORIGINS=* as
+            # belt-and-braces — ollama is unreachable from outside the pod
+            # (loopback bind), so the origin allow-list adds no real
+            # protection here and just risks 403s from header drift.
+            - name: OLLAMA_ORIGINS
+              value: "*"
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+          # ollama is bound to 127.0.0.1 inside the pod so kubelet (which runs
+          # probes from the *node* netns) cannot reach it via httpGet. Use an
+          # exec probe instead — `ollama list` talks to the in-pod server via
+          # OLLAMA_HOST and exits 0 when it is reachable.
+          readinessProbe:
+            exec:
+              command: ["ollama", "list"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["ollama", "list"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "4"
+              memory: 4Gi
+
+      volumes:
+        - name: caddyfile
+          configMap:
+            name: ollama-caddyfile
+        - name: certs
+          secret:
+            secretName: ollama-test-certs
+            items:
+              - key: server.crt
+                path: tls.crt
+              - key: server.key
+                path: tls.key
+        - name: models
+          persistentVolumeClaim:
+            claimName: ollama-models
+        - name: caddy-data
+          emptyDir: {}
+        - name: caddy-config
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-worker-svc
+  namespace: ollama-test
+spec:
+  type: ClusterIP
+  selector:
+    app: ollama-worker
+  ports:
+    - name: https
+      port: 443
+      targetPort: https

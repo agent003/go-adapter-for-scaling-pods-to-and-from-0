@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: proxy-config
+  labels:
+    app.kubernetes.io/name: ollama-gateway
+    app.kubernetes.io/component: config
+data:
+  # ----- Worker scaling target -----
+  # The Deployment whose replicas the proxy patches. Must match the
+  # `resourceNames` entry in rbac.yaml — change both together.
+  DEPLOYMENT_NAME: "ollama-worker"
+  NAMESPACE: "default"
+  # The worker pod runs Caddy as a sidecar terminating mTLS, so we forward
+  # over HTTPS. Override to plain http://ollama-worker-svc:11434 if you
+  # remove the sidecar.
+  OLLAMA_SERVICE_URL: "https://ollama-worker-svc:443"
+
+  # ----- Scale-to-zero behaviour -----
+  IDLE_TIMEOUT: "10m"
+  IDLE_CHECK_INTERVAL: "30s"
+
+  # ----- Cold-start behaviour -----
+  READY_TIMEOUT: "3m"
+  POLL_INTERVAL: "2s"
+
+  # ----- Rate limiting (per gateway pod) -----
+  RATE_LIMIT_RPS: "5"
+  RATE_LIMIT_BURST: "10"
+
+  # ----- HTTP server -----
+  LISTEN_ADDR: ":8080"
+  LOG_LEVEL: "info"
+  SHUTDOWN_TIMEOUT: "30s"
+
+  # ----- Upstream TLS (for the worker's caddy sidecar) -----
+  # Leave UPSTREAM_CA_CERT empty to trust the system root store. Set it to a
+  # PEM file path if the worker uses a private CA.
+  UPSTREAM_CA_CERT: ""
+  UPSTREAM_SERVER_NAME: ""
+  UPSTREAM_INSECURE_SKIP_VERIFY: "false"
+  # Optional client certificate if the worker requires mTLS:
+  # UPSTREAM_CLIENT_CERT: "/etc/upstream-certs/tls.crt"
+  # UPSTREAM_CLIENT_KEY: "/etc/upstream-certs/tls.key"
+
+  # ----- Caddy mTLS material (paths inside the caddy sidecar) -----
+  CA_CERT: "/etc/certs/ca.crt"
+  TLS_CERT: "/etc/certs/tls.crt"
+  TLS_KEY: "/etc/certs/tls.key"

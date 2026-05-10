@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-gateway
+  namespace: ollama-test
+  labels:
+    app: ollama-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama-gateway
+  template:
+    metadata:
+      labels:
+        app: ollama-gateway
+    spec:
+      serviceAccountName: ollama-scaler-sa
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: caddy
+          image: caddy:2.7-alpine
+          ports:
+            - name: https
+              containerPort: 443
+          volumeMounts:
+            - name: caddyfile
+              mountPath: /etc/caddy
+              readOnly: true
+            - name: certs
+              mountPath: /etc/certs
+              readOnly: true
+            - name: caddy-data
+              mountPath: /data
+            - name: caddy-config
+              mountPath: /config
+          livenessProbe:
+            tcpSocket:
+              port: https
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: https
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+
+        - name: go-proxy
+          image: ollama-go-proxy:test
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: gateway-env
+          volumeMounts:
+            - name: upstream-ca
+              mountPath: /etc/upstream-certs
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+
+      volumes:
+        - name: caddyfile
+          configMap:
+            name: gateway-caddyfile
+        - name: certs
+          secret:
+            secretName: ollama-test-certs
+            items:
+              - key: server.crt
+                path: tls.crt
+              - key: server.key
+                path: tls.key
+              - key: ca.crt
+                path: ca.crt
+        - name: upstream-ca
+          secret:
+            secretName: ollama-test-certs
+            items:
+              - key: ca.crt
+                path: ca.crt
+        - name: caddy-data
+          emptyDir: {}
+        - name: caddy-config
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-gateway-svc
+  namespace: ollama-test
+spec:
+  type: ClusterIP
+  selector:
+    app: ollama-gateway
+  ports:
+    - name: https
+      port: 443
+      targetPort: https

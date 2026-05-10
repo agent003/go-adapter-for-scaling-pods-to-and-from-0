@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ollama-scaler-sa
+  labels:
+    app.kubernetes.io/name: ollama-gateway
+---
+# Least-privilege Role: only `get` and `patch` on a single named Deployment.
+# `list` and `watch` are intentionally NOT granted — the proxy only ever
+# targets one specific Deployment by name.
+#
+# IMPORTANT: the `resourceNames` value below must match `DEPLOYMENT_NAME` in
+# the ConfigMap. Update both together if you rename the worker.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ollama-deployment-scaler
+  labels:
+    app.kubernetes.io/name: ollama-gateway
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["ollama-worker"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ollama-scaler-binding
+  labels:
+    app.kubernetes.io/name: ollama-gateway
+subjects:
+  - kind: ServiceAccount
+    name: ollama-scaler-sa
+roleRef:
+  kind: Role
+  name: ollama-deployment-scaler
+  apiGroup: rbac.authorization.k8s.io

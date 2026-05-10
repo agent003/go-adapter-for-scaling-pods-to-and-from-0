@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-caddyfile
+  namespace: ollama-test
+data:
+  Caddyfile: |
+    {
+        admin off
+        log {
+            output stdout
+            format json
+            level INFO
+        }
+        servers {
+            timeouts {
+                read_header 30s
+                idle 10m
+            }
+        }
+    }
+
+    :443 {
+        log {
+            output stdout
+            format json
+        }
+
+        tls /etc/certs/tls.crt /etc/certs/tls.key {
+            client_auth {
+                mode require_and_verify
+                trusted_ca_cert_file /etc/certs/ca.crt
+            }
+            protocols tls1.2 tls1.3
+        }
+
+        reverse_proxy localhost:8080 {
+            header_up X-Real-IP {remote_host}
+            flush_interval -1
+            transport http {
+                dial_timeout 10s
+                response_header_timeout 0
+            }
+        }
+    }

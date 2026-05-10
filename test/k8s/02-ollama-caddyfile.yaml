@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ollama-caddyfile
+  namespace: ollama-test
+data:
+  Caddyfile: |
+    {
+        admin off
+        log {
+            output stdout
+            format json
+            level INFO
+        }
+        servers {
+            timeouts {
+                read_header 30s
+                idle 10m
+            }
+        }
+    }
+
+    :443 {
+        log {
+            output stdout
+            format json
+        }
+
+        tls /etc/certs/tls.crt /etc/certs/tls.key {
+            protocols tls1.2 tls1.3
+        }
+
+        reverse_proxy localhost:11434 {
+            # Ollama enforces a Host-header allow-list (OLLAMA_ORIGINS), and
+            # by default only loopback hostnames are allowed. Rewrite Host to
+            # the localhost upstream so requests are accepted regardless of
+            # what the external client sent.
+            header_up Host localhost:11434
+            flush_interval -1
+            transport http {
+                dial_timeout 5s
+                response_header_timeout 0
+            }
+        }
+    }

@@ -1,0 +1,16 @@
+# Local Claude Code session state
+.claude/
+
+# macOS
+.DS_Store
+
+# Editor swap/junk
+*.swp
+*.swo
+*~
+
+# Local logs
+*.log
+
+# Build artefacts
+/go-proxy/proxy

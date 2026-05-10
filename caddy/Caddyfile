@@ -1,0 +1,50 @@
+{
+	admin off
+
+	# Cluster-internal log destination; the JSON encoder plays well with
+	# Loki / Cloud Logging / EFK. Health-probe noise is filtered below.
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+
+	servers {
+		# Slowloris protection on headers; no body/write timeout because
+		# Ollama generations can stream for many minutes.
+		timeouts {
+			read_header 30s
+			idle 10m
+		}
+	}
+}
+
+:443 {
+	tls {$TLS_CERT} {$TLS_KEY} {
+		client_auth {
+			mode require_and_verify
+			trusted_ca_cert_file {$CA_CERT}
+		}
+		protocols tls1.2 tls1.3
+	}
+
+	log {
+		output stdout
+		format json
+	}
+
+	reverse_proxy localhost:8080 {
+		header_up X-Real-IP {remote_host}
+
+		# -1 flushes after every write so streaming responses (Ollama's
+		# line-delimited JSON) reach the client immediately. flush_interval
+		# is a reverse_proxy subdirective, not a transport one.
+		flush_interval -1
+
+		transport http {
+			dial_timeout 10s
+			# 0 = no header timeout: cold-starts can take a while.
+			response_header_timeout 0
+		}
+	}
+}
